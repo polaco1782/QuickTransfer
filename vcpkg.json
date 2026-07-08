@@ -1,0 +1,10 @@
+{
+  "name": "quicktransfer",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "asio",
+    "nlohmann-json",
+    "openssl",
+    "wxwidgets"
+  ]
+}

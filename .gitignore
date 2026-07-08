@@ -1,0 +1,12 @@
+.vs/
+out/
+build/
+x64/
+bin/
+obj/
+packages/
+vcpkg_installed/
+*.user
+*.suo
+*.log
+*.qtpartial
