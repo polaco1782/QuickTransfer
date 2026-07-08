@@ -1,0 +1,94 @@
+name: Tagged Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-static-release:
+    name: Windows static release
+    runs-on: windows-latest
+
+    env:
+      CONFIGURATION: Release
+      PLATFORM: x64
+      TRIPLET: x64-windows-static
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Set up vcpkg
+        shell: pwsh
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) {
+            throw "VCPKG_INSTALLATION_ROOT is not set on this runner."
+          }
+
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" integrate install
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: vcpkg_installed
+          key: vcpkg-${{ runner.os }}-${{ env.TRIPLET }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ env.TRIPLET }}-
+
+      - name: Build static release
+        shell: pwsh
+        run: >
+          msbuild QuickTransfer.sln
+          /m
+          /p:Configuration=${{ env.CONFIGURATION }}
+          /p:Platform=${{ env.PLATFORM }}
+          /p:VcpkgEnableManifest=true
+          /p:VcpkgTriplet=${{ env.TRIPLET }}
+          /p:VcpkgApplocalDeps=false
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $releaseDir = Join-Path $PWD "release"
+          $exe = Join-Path $PWD "x64\Release\QuickTransfer.App.exe"
+          $zip = Join-Path $releaseDir "QuickTransfer-$tag-windows-x64-static.zip"
+
+          if (-not (Test-Path $exe)) {
+            throw "Expected release executable was not found: $exe"
+          }
+
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+          Copy-Item $exe (Join-Path $releaseDir "QuickTransfer.exe")
+          Copy-Item (Join-Path $PWD "README.md") $releaseDir
+
+          $packageFiles = @(
+            Join-Path $releaseDir "QuickTransfer.exe"
+            Join-Path $releaseDir "README.md"
+          )
+          Compress-Archive -Path $packageFiles -DestinationPath $zip -Force
+
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuickTransfer-${{ github.ref_name }}-windows-x64-static
+          path: ${{ steps.package.outputs.zip }}
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" "${{ steps.package.outputs.zip }}" --title "QuickTransfer ${{ github.ref_name }}" --generate-notes
