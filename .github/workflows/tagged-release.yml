@@ -43,6 +43,14 @@ jobs:
           restore-keys: |
             vcpkg-${{ runner.os }}-${{ env.TRIPLET }}-
 
+      - name: Install vcpkg dependencies
+        shell: pwsh
+        run: >
+          & "$env:VCPKG_ROOT\vcpkg.exe" install
+          --triplet ${{ env.TRIPLET }}
+          --x-manifest-root="$PWD"
+          --x-install-root="$PWD\vcpkg_installed\${{ env.TRIPLET }}"
+
       - name: Build static release
         shell: pwsh
         run: >
@@ -51,6 +59,7 @@ jobs:
           /p:Configuration=${{ env.CONFIGURATION }}
           /p:Platform=${{ env.PLATFORM }}
           /p:VcpkgEnableManifest=true
+          /p:VcpkgManifestInstall=false
           /p:VcpkgTriplet=${{ env.TRIPLET }}
           /p:VcpkgApplocalDeps=false
 
