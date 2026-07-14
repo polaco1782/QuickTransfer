@@ -81,6 +81,7 @@ struct PeerConnection::Impl {
     std::unique_ptr<asio::ip::tcp::acceptor> acceptor;
     std::optional<CryptoSession> crypto;
     std::mutex sendMutex;
+    std::mutex fileTransferMutex;
     std::mutex sendWorkersMutex;
     std::thread worker;
     std::thread keepalive;
@@ -244,13 +245,18 @@ struct PeerConnection::Impl {
     }
 
     bool sendFile(const std::filesystem::path& filePath) {
-        if (!connected || !std::filesystem::is_regular_file(filePath)) {
+        if (!isReadyToSend() || !std::filesystem::is_regular_file(filePath)) {
             return false;
         }
 
         std::scoped_lock workersLock(sendWorkersMutex);
         sendWorkers.emplace_back([this, filePath]() {
             try {
+                std::scoped_lock fileLock(fileTransferMutex);
+                if (!isReadyToSend()) {
+                    throw std::runtime_error("encrypted session is not ready");
+                }
+
                 const auto fileSize = std::filesystem::file_size(filePath);
                 const auto displayName = baseNameOnly(filePath);
                 nlohmann::json offer = {{"name", displayName}, {"size", fileSize}};
@@ -312,7 +318,10 @@ struct PeerConnection::Impl {
         socket.cancel(ignored);
         socket.shutdown(asio::ip::tcp::socket::shutdown_both, ignored);
         socket.close(ignored);
-        crypto.reset();
+        {
+            std::scoped_lock lock(sendMutex);
+            crypto.reset();
+        }
         if (keepalive.joinable()) {
             keepalive.join();
         }
@@ -426,7 +435,10 @@ struct PeerConnection::Impl {
         auto serverNonce = fromHex(ack.value("nonce", ""));
         auto salt = fromHex(ack.value("salt", ""));
         auto combined = combineSalt(salt, clientNonce, serverNonce);
-        crypto = CryptoSession::derive(passphrase, combined);
+        {
+            std::scoped_lock lock(sendMutex);
+            crypto = CryptoSession::derive(passphrase, combined);
+        }
         sendEncrypted(FrameType::AuthOk, bytesFromString("ok"));
 
         const auto ok = readEncrypted();
@@ -449,7 +461,10 @@ struct PeerConnection::Impl {
         writeFrame({FrameType::HelloAck, bytesFromString(ack.dump())});
 
         auto combined = combineSalt(salt, clientNonce, serverNonce);
-        crypto = CryptoSession::derive(passphrase, combined);
+        {
+            std::scoped_lock lock(sendMutex);
+            crypto = CryptoSession::derive(passphrase, combined);
+        }
 
         const auto auth = readEncrypted();
         if (auth.type != FrameType::AuthOk) {
@@ -459,6 +474,7 @@ struct PeerConnection::Impl {
     }
 
     void sendEncrypted(FrameType type, std::span<const std::uint8_t> payload) {
+        std::scoped_lock lock(sendMutex);
         if (!crypto) {
             throw std::runtime_error("encrypted session is not ready");
         }
@@ -475,7 +491,6 @@ struct PeerConnection::Impl {
     }
 
     void writeFrame(const Frame& frame) {
-        std::scoped_lock lock(sendMutex);
         FrameHeader header;
         header.type = frame.type;
         header.payloadSize = frame.payload.size();
@@ -510,6 +525,11 @@ struct PeerConnection::Impl {
         socket.shutdown(asio::ip::tcp::socket::shutdown_both, ignored);
         socket.close(ignored);
     }
+
+    bool isReadyToSend() {
+        std::scoped_lock lock(sendMutex);
+        return connected && crypto.has_value();
+    }
 };
 
 PeerConnection::PeerConnection(PeerCallbacks callbacks)
@@ -535,7 +555,7 @@ bool PeerConnection::sendFile(const std::filesystem::path& filePath) {
 }
 
 bool PeerConnection::isConnected() const {
-    return impl_->connected;
+    return impl_->isReadyToSend();
 }
 
 } // namespace qt

@@ -121,11 +121,16 @@ void MainFrame::buildUi() {
     auto* headerSizer = new wxBoxSizer(wxHORIZONTAL);
     headerSizer->Add(new wxStaticText(header, wxID_ANY, "Key:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
     keyCtrl_ = new wxTextCtrl(header, wxID_ANY, "", wxDefaultPosition, wxSize(150, -1), wxTE_PASSWORD);
-    headerSizer->Add(keyCtrl_, 0, wxRIGHT, 12);
+    headerSizer->Add(keyCtrl_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 12);
     disconnectButton_ = new wxButton(header, IdDisconnect, "Disconnect");
-    headerSizer->Add(disconnectButton_, 0, wxLEFT, 8);
+    headerSizer->Add(disconnectButton_, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
     sendButton_ = new wxButton(header, IdSend, "Send File...");
-    headerSizer->Add(sendButton_, 0, wxLEFT, 8);
+    headerSizer->Add(sendButton_, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
+    headerSizer->AddStretchSpacer();
+    const wxIcon appIcon("APP_ICON", wxBITMAP_TYPE_ICO_RESOURCE, FromDIP(48), FromDIP(48));
+    const wxBitmap appBitmap(appIcon);
+    headerSizer->Add(new wxStaticBitmap(header, wxID_ANY, appBitmap),
+                     0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
     header->SetSizer(headerSizer);
     root->Add(header, 0, wxEXPAND | wxALL, 6);
 
